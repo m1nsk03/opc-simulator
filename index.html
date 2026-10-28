@@ -1,0 +1,910 @@
+<title>M1 OPC 시뮬레이터</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 왼쪽 조작 패널 + 오른쪽 결과 스테이지(목표 / 보정 전 4칸 / 보정 후 4칸 / 지표). 좁은 화면에선 세로로 쌓임 */
+:root{
+  --bg:#eef2f4; --panel:#ffffff; --ink:#15212a; --muted:#5a6a76; --line:#d3dce2;
+  --accent:#1d6a86; --accent-ink:#ffffff; --metal:#337ab7; --metal-soft:#a9c3d8;
+  --miss:#e66100; --extra:#7b3fa0; --good:#2c7a4b; --bad:#b3261e; --contour:#ff3b30;
+  --field:#f7f9fa;
+  --f-body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1418; --panel:#162027; --ink:#e2e9ee; --muted:#94a5b0; --line:#2b3841;
+  --accent:#5db0cf; --accent-ink:#06222c; --metal:#4f97d6; --metal-soft:#38556d;
+  --miss:#ff8a3d; --extra:#b98ae0; --good:#5cc489; --bad:#ff7b72; --contour:#ff5a50;
+  --field:#1c2830; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1418; --panel:#162027; --ink:#e2e9ee; --muted:#94a5b0; --line:#2b3841;
+  --accent:#5db0cf; --accent-ink:#06222c; --metal:#4f97d6; --metal-soft:#38556d;
+  --miss:#ff8a3d; --extra:#b98ae0; --good:#5cc489; --bad:#ff7b72; --contour:#ff5a50;
+  --field:#1c2830; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px;max-width:1500px;margin:0 auto}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin-bottom:14px}
+h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13px}
+.cond{font-family:var(--f-mono);font-size:12px;color:var(--muted);width:100%}
+.layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
+aside{display:flex;flex-direction:column;gap:12px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.box h2{font-size:13px;margin:0 0 10px;font-weight:600;letter-spacing:.02em;display:flex;align-items:center;gap:8px}
+.box h2 .n{font-family:var(--f-mono);font-size:11px;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:0 5px}
+.f{display:grid;grid-template-columns:1fr 112px;gap:6px 10px;align-items:center;margin-bottom:7px}
+.f label{color:var(--muted);font-size:13px}
+.f .u{font-size:11px;color:var(--muted)}
+input[type=number],select,textarea{font:inherit;font-family:var(--f-mono);font-size:13px;background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px 6px;width:100%}
+select{font-family:var(--f-body)}
+textarea{min-height:120px;font-size:11.5px;resize:vertical}
+input[type=range]{width:100%;accent-color:var(--accent)}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-bottom:8px}
+.seg button{flex:1;border:0;border-radius:0;background:var(--field);color:var(--ink)}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--field);color:var(--ink);border-radius:6px;padding:6px 10px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.note{font-size:12px;color:var(--muted);margin:6px 0 0}
+.ktab{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin:6px 0}
+.ktab input{padding:3px 2px;text-align:center;font-size:12px}
+.hr{height:1px;background:var(--line);margin:10px 0}
+main{display:flex;flex-direction:column;gap:14px;min-width:0}
+.rowh{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0}
+.rowh h3{font-size:15px;margin:0}
+.rowh span{font-size:12px;color:var(--muted)}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:1200px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.6fr);gap:10px}
+@media (max-width:1200px){.top{grid-template-columns:repeat(2,minmax(0,1fr))}.top .mbox{grid-column:1/-1}}
+@media (max-width:520px){.top,.grid4{grid-template-columns:minmax(0,1fr)}}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;min-width:0}
+figcaption{font-size:12.5px;font-weight:600;margin-bottom:4px;display:flex;justify-content:space-between;gap:6px}
+figcaption small{font-weight:400;color:var(--muted);font-size:11px}
+canvas{display:block;width:100%;height:auto;image-rendering:pixelated}
+#mask1{cursor:crosshair}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:var(--muted);margin-top:4px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+.mbox{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.tblwrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left;white-space:normal}
+thead th{color:var(--muted);font-weight:500;font-size:11.5px}
+td{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+td:first-child{font-family:var(--f-body)}
+.up{color:var(--good)} .down{color:var(--bad)}
+.cbar{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);font-family:var(--f-mono)}
+.cbar canvas{width:180px;height:12px;image-rendering:auto;border-radius:2px}
+.status{font-size:12px;color:var(--muted);font-family:var(--f-mono);min-height:1.5em}
+#exportBox textarea{min-height:160px}
+#figOut{max-width:100%;border:1px solid var(--line);border-radius:6px;margin-top:6px;background:#fff}
+details summary{cursor:pointer;font-size:13px;font-weight:600}
+details p{font-size:12.5px;color:var(--muted);margin:6px 0}
+.eq{font-family:var(--f-mono);font-size:12px;background:var(--field);border:1px solid var(--line);border-radius:5px;padding:6px 8px;overflow-x:auto;white-space:nowrap}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>M1 OPC 시뮬레이터</h1>
+  <span class="sub">INV_X1 · NAND2_X4 Metal1 · 광 퍼짐 합산 모델 + 임계값 현상 + 마스크 보정</span>
+  <div class="cond" id="condLine"></div>
+</header>
+
+<div class="layout">
+<aside>
+  <div class="box">
+    <h2><span class="n">1</span>레이아웃 · 격자</h2>
+    <div class="f"><label for="layout">대상 셀</label><select id="layout"><option value="INV_X1">INV_X1</option><option value="NAND2_X4">NAND2_X4</option></select></div>
+    <div class="f"><label for="dx">격자 1칸 크기</label><select id="dx"><option value="0.875">0.875 nm (λ/4)</option><option value="1.75" selected>1.75 nm (λ/2)</option><option value="3.5">3.5 nm (λ)</option></select></div>
+    <div class="f"><label for="margin">바깥 여백 <span class="u">nm</span></label><input type="number" id="margin" value="21" min="0" max="70" step="3.5"></div>
+    <p class="note">목표 패턴 좌표는 과제 그림3을 λ = 3.5 nm 격자로 옮긴 값입니다. 선폭은 모두 10.5 nm(3λ)입니다.</p>
+  </div>
+
+  <div class="box">
+    <h2><span class="n">2</span>빛 퍼짐 모델 (커널)</h2>
+    <div class="seg" role="group" aria-label="커널 종류">
+      <button id="kGauss" aria-pressed="true">2D 가우시안</button>
+      <button id="kTable" aria-pressed="false">5×5 가중치 표</button>
+    </div>
+    <div id="gaussOpts">
+      <div class="f"><label for="sigma">σ (퍼짐 정도) <span class="u">nm</span></label><input type="number" id="sigma" value="6" min="0.5" max="30" step="0.5"></div>
+      <div class="f"><label for="trunc">적용 범위 <span class="u">× σ</span></label><input type="number" id="trunc" value="3" min="1" max="5" step="0.5"></div>
+    </div>
+    <div id="tableOpts" hidden>
+      <div class="ktab" id="ktab"></div>
+      <div class="f"><label for="cell">표 1칸 간격 <span class="u">nm</span></label><input type="number" id="cell" value="3.5" min="0.875" max="14" step="0.875"></div>
+      <p class="note">기본값은 과제 그림4의 상대 광량(중심 10)입니다. 칸 사이 값은 선형 보간합니다.</p>
+    </div>
+    <div class="f"><label for="norm">합 = 1로 정규화</label><input type="checkbox" id="norm" checked style="justify-self:start"></div>
+    <p class="note" id="kInfo"></p>
+  </div>
+
+  <div class="box">
+    <h2><span class="n">3</span>현상 (임계값)</h2>
+    <div class="f"><label for="th">현상 임계값</label><input type="number" id="th" value="0.5" step="0.01" min="0"></div>
+    <input type="range" id="thR" min="0" max="1" step="0.01" value="0.5" aria-label="임계값 슬라이더">
+    <div class="f" style="margin-top:8px"><label for="tone">PR 정의</label><select id="tone"><option value="neg">네거티브 PR</option><option value="pos">포지티브 PR (다마신)</option></select></div>
+    <p class="note" id="toneDesc"></p>
+  </div>
+
+  <div class="box">
+    <h2><span class="n">4</span>마스크 보정 (OPC)</h2>
+    <details open><summary>규칙 기반 보정</summary>
+      <div style="height:6px"></div>
+      <div class="f"><label for="bias">경계 이동(바이어스) <span class="u">nm</span></label><input type="number" id="bias" value="0" step="0.875" min="-5" max="7"></div>
+      <div class="f"><label for="ext">선 끝 연장 <span class="u">nm</span></label><input type="number" id="ext" value="0" step="0.875" min="0" max="14"></div>
+      <div class="f"><label for="hhw">해머헤드 폭(양쪽) <span class="u">nm</span></label><input type="number" id="hhw" value="0" step="0.875" min="0" max="7"></div>
+      <div class="f"><label for="hhl">해머헤드 길이 <span class="u">nm</span></label><input type="number" id="hhl" value="3.5" step="0.875" min="0.875" max="14"></div>
+      <div class="f"><label for="serif">세리프(볼록 모서리) <span class="u">nm</span></label><input type="number" id="serif" value="0" step="0.875" min="0" max="10.5"></div>
+      <div class="f"><label for="anti">안티세리프(오목 모서리) <span class="u">nm</span></label><input type="number" id="anti" value="0" step="0.875" min="0" max="10.5"></div>
+      <div class="btns"><button class="pri" id="applyRules">규칙 보정 적용</button></div>
+      <p class="note">목표 패턴에서 새로 마스크를 만듭니다. 기존 수정 내용은 덮어씁니다. 값은 격자에 맞춰 반올림됩니다: 바이어스·선 끝·해머헤드는 <span id="qStep1">1.75</span> nm 단위, 세리프·안티세리프는 <span id="qStep2">3.5</span> nm 단위.</p>
+    </details>
+    <div class="hr"></div>
+    <details open><summary>자동 보정 (픽셀 단위 반복)</summary>
+      <div style="height:6px"></div>
+      <div class="f"><label for="iters">반복 횟수</label><input type="number" id="iters" value="15" min="1" max="200" step="1"></div>
+      <div class="f"><label for="band">수정 허용 범위 <span class="u">nm</span></label><input type="number" id="band" value="7" min="1.75" max="21" step="0.875"></div>
+      <div class="f"><label for="delta">판정 여유 δ <span class="u">× 개구부 광량</span></label><input type="number" id="delta" value="0.05" min="0" max="0.3" step="0.01"></div>
+      <div class="btns"><button class="pri" id="runAuto">자동 OPC 실행</button><button id="stopAuto" disabled>중지</button></div>
+      <p class="note">현재 마스크에서 시작합니다. 목표 경계 근처의 마스크 칸을 하나씩 뒤집어 보고, 오차 비용이 줄면 그대로 둡니다.</p>
+    </details>
+    <div class="hr"></div>
+    <details open><summary>직접 그리기 (‘보정 후 마스크’ 그림 위)</summary>
+      <div style="height:6px"></div>
+      <div class="seg" role="group" aria-label="브러시">
+        <button id="bOff" aria-pressed="true">끄기</button><button id="bAdd" aria-pressed="false">추가</button><button id="bDel" aria-pressed="false">지우기</button>
+      </div>
+      <div class="f"><label for="bsize">브러시 크기 <span class="u">칸</span></label><input type="number" id="bsize" value="1" min="1" max="8" step="1"></div>
+    </details>
+    <div class="hr"></div>
+    <div class="btns"><button id="resetMask">마스크 초기화 (= 목표)</button></div>
+    <p class="status" id="status"></p>
+  </div>
+
+  <div class="box">
+    <h2><span class="n">5</span>단면 측정</h2>
+    <p class="note" style="margin:0 0 8px">시작점에서 끝점까지 선을 긋고, 그 선을 따라 노광량과 패턴 구간을 잽니다. 선폭, 선 끝 위치, 틈의 노광량 확인에 씁니다.</p>
+    <div class="f"><label for="mx1">시작점 x, y <span class="u">nm</span></label><div style="display:flex;gap:4px"><input type="number" id="mx1" step="0.25"><input type="number" id="my1" step="0.25"></div></div>
+    <div class="f"><label for="mx2">끝점 x, y <span class="u">nm</span></label><div style="display:flex;gap:4px"><input type="number" id="mx2" step="0.25"><input type="number" id="my2" step="0.25"></div></div>
+    <div class="btns"><button class="pri" id="doMeasure">측정</button><button id="pickMeasure" aria-pressed="false">그림에서 두 점 클릭</button></div>
+    <div class="f" style="margin-top:6px"><label for="snap">가로·세로로 맞추기</label><input type="checkbox" id="snap" checked style="justify-self:start"></div>
+    <p class="note" id="pickHint"></p>
+  </div>
+
+  <div class="box">
+    <h2><span class="n">6</span>저장 · 내보내기</h2>
+    <div class="btns"><button class="pri" id="openExport">결과 내보내기</button><button id="openImport">조건 불러오기</button></div>
+    <div id="exportBox" hidden>
+      <div class="hr"></div>
+      <p class="note">아래 버튼이 동작하지 않는 환경이면 글상자 내용을 복사해 저장하세요. 그림은 마우스 오른쪽 버튼(폰은 길게 누르기)으로 저장할 수 있습니다.</p>
+      <div class="btns"><button id="dlJson">JSON 저장</button><button id="cpJson">JSON 복사</button><button id="dlCsv">CSV 저장</button><button id="cpCsv">CSV 복사</button><button id="dlPng">종합 그림 저장</button></div>
+      <label class="note" for="jsonOut">JSON (조건 + 마스크 + 지표)</label>
+      <textarea id="jsonOut" readonly></textarea>
+      <label class="note" for="csvOut">CSV (지표 + 반복 기록)</label>
+      <textarea id="csvOut" readonly></textarea>
+    </div>
+    <div id="importBox" hidden>
+      <div class="hr"></div>
+      <p class="note">내보낸 JSON을 붙여 넣거나 파일을 고르세요.</p>
+      <textarea id="jsonIn" placeholder='{"app":"M1 OPC 시뮬레이터", ...}'></textarea>
+      <div class="btns"><input type="file" id="fileIn" accept=".json,application/json" style="font-size:12px;max-width:100%"><button class="pri" id="doImport">불러오기</button></div>
+    </div>
+    <p class="status" id="ioStatus"></p>
+  </div>
+
+  <div class="box">
+    <details><summary>이 앱의 계산 방식</summary>
+      <p>노광량은 마스크 투과 칸마다 커널을 더한 값입니다.</p>
+      <div class="eq">I(x,y) = Σ M(x′,y′) · K(x−x′, y−y′)</div>
+      <p>현상 후 패턴은 I ≥ 임계값인 칸입니다. 마스크 투과 영역이 M1 영역입니다.</p>
+      <p>빛의 세기(강도)를 그대로 더하는 비간섭 근사입니다. 실제 노광 장비에서는 진폭과 위상이 간섭한 뒤 세기가 되므로, 인접 패턴 사이의 보강·상쇄 간섭은 이 모델에 들어 있지 않습니다.</p>
+      <p>EPE는 목표 경계(모서리 3.5 nm 이내 제외)마다 바깥 방향으로 노광량이 임계값을 지나는 위치를 선형 보간해 구한 경계 위치 오차입니다. +는 바깥으로 커짐, −는 안쪽으로 줄어듦입니다. 측정점 앞뒤 14 nm 안에 경계가 없으면(선 끝이 짧아져 그 자리에 패턴이 아예 없는 경우 등) ‘경계 미형성 측정점’으로 따로 세고 EPE 통계에서는 뺍니다.</p>
+      <p>자동 보정 비용: 목표 안쪽 칸은 max(0, 임계값+δ−I), 바깥 칸은 max(0, I−(임계값−δ))를 모두 더한 값입니다.</p>
+    </details>
+  </div>
+</aside>
+
+<main>
+  <div class="top">
+    <figure><figcaption>목표 패턴 <small id="tgtInfo"></small></figcaption><canvas id="tgt"></canvas>
+      <div class="legend"><span><i class="sw" style="background:var(--metal)"></i>Metal1</span><span>파선: 셀 경계</span></div></figure>
+    <figure><figcaption>빛 분포 커널 <small>중심 = 10 기준 상대값</small></figcaption><canvas id="kern"></canvas>
+      <div class="legend" id="kLegend"></div></figure>
+    <div class="mbox">
+      <div class="rowh"><h3>정량 비교</h3><span>같은 격자·커널·임계값에서 계산</span></div>
+      <div class="tblwrap"><table id="mtab"><thead><tr><th>지표</th><th>보정 전</th><th>보정 후</th><th>변화</th></tr></thead><tbody></tbody></table></div>
+      <div class="rowh" style="margin-top:8px"><span>자동 보정 반복별 IoU (가로축: 반복 횟수)</span></div>
+      <canvas id="hist" style="height:90px;image-rendering:auto"></canvas>
+      <p class="note" id="histInfo" style="font-family:var(--f-mono);margin-top:2px">그래프에 마우스를 올리면 회차별 값이 나옵니다.</p>
+    </div>
+  </div>
+
+  <div class="rowh"><span id="readout" style="font-family:var(--f-mono)">그림 위에 마우스를 올리면 좌표와 노광량이 여기에 표시됩니다.</span></div>
+  <div class="rowh"><h3>보정 전</h3><span>마스크 = 목표 패턴</span>
+    <div class="cbar"><span>노광량 0</span><canvas id="cbar" width="180" height="12"></canvas><span id="cbarMax"></span><span style="color:var(--contour)">— 임계값 등고선</span></div></div>
+  <div class="grid4">
+    <figure><figcaption>마스크</figcaption><canvas id="mask0"></canvas></figure>
+    <figure><figcaption>노광 분포</figcaption><canvas id="int0"></canvas></figure>
+    <figure><figcaption>현상 후 패턴</figcaption><canvas id="pr0"></canvas></figure>
+    <figure><figcaption>목표와 중첩</figcaption><canvas id="ov0"></canvas></figure>
+  </div>
+
+  <div class="rowh"><h3>보정 후</h3><span>현재 마스크 · 얇은 선은 목표 경계</span></div>
+  <div class="grid4">
+    <figure><figcaption>마스크 <small id="maskHint"></small></figcaption><canvas id="mask1"></canvas></figure>
+    <figure><figcaption>노광 분포</figcaption><canvas id="int1"></canvas></figure>
+    <figure><figcaption>현상 후 패턴</figcaption><canvas id="pr1"></canvas></figure>
+    <figure><figcaption>목표와 중첩</figcaption><canvas id="ov1"></canvas></figure>
+  </div>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--metal-soft)"></i>목표와 일치</span>
+    <span><i class="sw" style="background:var(--miss)"></i>미형성 (목표 O · 결과 X)</span>
+    <span><i class="sw" style="background:var(--extra)"></i>과형성 (목표 X · 결과 O)</span>
+  </div>
+  <figure id="profBox"><figcaption>단면 프로파일 <small id="profCap"></small></figcaption>
+    <canvas id="prof" style="height:200px;image-rendering:auto"></canvas>
+    <div class="legend"><span><i class="sw" style="background:var(--metal-soft)"></i>목표 패턴 구간</span><span><i class="sw" style="background:var(--muted)"></i>보정 전 노광량</span><span><i class="sw" style="background:var(--accent)"></i>보정 후 노광량</span><span><i class="sw" style="background:var(--contour)"></i>임계값</span></div>
+    <div class="tblwrap" style="margin-top:6px"><table id="ptab"><thead><tr><th>항목</th><th>목표</th><th>보정 전</th><th>보정 후</th></tr></thead><tbody></tbody></table></div>
+  </figure>
+  <figure id="figBox" hidden><figcaption>논문용 그림 <small>그림마다 오른쪽 클릭 → 이미지를 다른 이름으로 저장</small></figcaption>
+    <p class="note" style="margin:4px 0 2px">① 보정 전·후 비교 (2줄 × 4칸)</p><img id="figOut" alt="OPC 보정 전후 비교 그림">
+    <p class="note" style="margin:12px 0 2px">② 목표 패턴 + 빛 분포 커널</p><img id="figTK" alt="목표 패턴과 커널 그림" style="max-width:100%;border:1px solid var(--line);border-radius:6px">
+    <p class="note" style="margin:12px 0 2px">③ 단면 프로파일 (현재 측정선 기준)</p><img id="figPF" alt="단면 프로파일 그림" style="max-width:100%;border:1px solid var(--line);border-radius:6px">
+  </figure>
+</main>
+</div>
+</div>
+
+<script>
+"use strict";
+const LAYOUTS={
+ INV_X1:{W:63,H:189,rects:[[0,0,18,3],[3,3,6,21],[12,18,15,36],[3,33,6,51],[0,51,18,54]]},
+ NAND2_X4:{W:157.5,H:189,rects:[[0,0,45,3],[3,3,6,12],[21,3,24,12],[39,3,42,12],[12,6,15,24],[30,6,33,24],[12,21,33,24],[21,24,24,48],[3,30,6,51],[39,30,42,51],[12,30,15,48],[30,30,33,48],[0,51,45,54]]}
+};
+const LAM=3.5;
+for(const k in LAYOUTS){LAYOUTS[k].nm=LAYOUTS[k].rects.map(r=>({x0:r[0]*LAM,y0:r[1]*LAM,x1:r[2]*LAM,y1:r[3]*LAM}));}
+const FIG4=[[0,0.5,1,0.5,0],[0.5,4,5,4,0.5],[1,5,10,5,1],[0.5,4,5,4,0.5],[0,0.5,1,0.5,0]];
+
+const S={layout:"INV_X1",dx:1.75,margin:21,ktype:"gauss",sigma:6,trunc:3,table:FIG4.map(r=>r.slice()),cell:3.5,norm:true,th:0.5,tone:"neg",
+ rules:{bias:0,ext:0,hhw:0,hhl:3.5,serif:0,anti:0},auto:{iters:15,band:7,delta:0.05},brush:{mode:"off",size:1}};
+let G,T,M,K,I0,P0,I1,P1,met0,met1,sites,dist,history=[],opcLog=[],running=false,stopFlag=false;
+const $=id=>document.getElementById(id);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+/* ---------- grid / raster ---------- */
+function makeGrid(){
+  const L=LAYOUTS[S.layout],dx=S.dx,m=S.margin;
+  const nx=Math.round((L.W+2*m)/dx),ny=Math.round((L.H+2*m)/dx);
+  G={dx,m,nx,ny,N:nx*ny,W:L.W,H:L.H};
+}
+function raster(rects,arr,val){
+  const {dx,m,nx,ny}=G,e=1e-9;
+  for(const r of rects){
+    let i0=Math.ceil((r.x0+m)/dx-0.5-e),i1=Math.ceil((r.x1+m)/dx-0.5-e)-1;
+    let j0=Math.ceil((r.y0+m)/dx-0.5-e),j1=Math.ceil((r.y1+m)/dx-0.5-e)-1;
+    i0=Math.max(0,i0);j0=Math.max(0,j0);i1=Math.min(nx-1,i1);j1=Math.min(ny-1,j1);
+    for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)arr[j*nx+i]=val;
+  }
+  return arr;
+}
+function inTarget(x,y){for(const r of LAYOUTS[S.layout].nm)if(x>=r.x0&&x<r.x1&&y>=r.y0&&y<r.y1)return true;return false;}
+
+/* ---------- kernel ---------- */
+function buildKernel(){
+  const dx=S.dx;let R,w;
+  if(S.ktype==="gauss"){
+    R=Math.max(1,Math.ceil(S.trunc*S.sigma/dx));const n=2*R+1;w=new Float64Array(n*n);
+    for(let v=-R;v<=R;v++)for(let u=-R;u<=R;u++){const r2=(u*dx)**2+(v*dx)**2;if(Math.sqrt(r2)<=S.trunc*S.sigma+1e-9)w[(v+R)*n+u+R]=Math.exp(-r2/(2*S.sigma*S.sigma));}
+  }else{
+    const c=S.cell;R=Math.max(1,Math.floor(2*c/dx+1e-9));const n=2*R+1;w=new Float64Array(n*n);
+    const tv=(a,b)=>(a<0||a>4||b<0||b>4)?0:S.table[b][a];
+    for(let v=-R;v<=R;v++)for(let u=-R;u<=R;u++){
+      const fx=u*dx/c+2,fy=v*dx/c+2;if(fx<0||fx>4||fy<0||fy>4)continue;
+      const ax=Math.floor(fx),ay=Math.floor(fy),tx=fx-ax,ty=fy-ay;
+      w[(v+R)*n+u+R]=tv(ax,ay)*(1-tx)*(1-ty)+tv(ax+1,ay)*tx*(1-ty)+tv(ax,ay+1)*(1-tx)*ty+tv(ax+1,ay+1)*tx*ty;
+    }
+  }
+  const n=2*R+1;let sum=0;for(const x of w)sum+=x;
+  if(S.norm&&sum>0)for(let i=0;i<w.length;i++)w[i]/=sum;
+  let s2=0;for(const x of w)s2+=x;
+  K={R,n,w,sum:s2,rawSum:sum};
+}
+const Iopen=()=>K.sum;
+
+/* ---------- simulation ---------- */
+function convolve(mask){
+  const {nx,ny,N}=G,{R,n,w}=K,out=new Float64Array(N);
+  for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){
+    if(!mask[y*nx+x])continue;
+    const v0=Math.max(-R,-y),v1=Math.min(R,ny-1-y),u0=Math.max(-R,-x),u1=Math.min(R,nx-1-x);
+    for(let v=v0;v<=v1;v++){const ro=(y+v)*nx+x,ko=(v+R)*n+R;for(let u=u0;u<=u1;u++)out[ro+u]+=w[ko+u];}
+  }
+  return out;
+}
+const develop=I=>{const p=new Uint8Array(G.N);for(let i=0;i<G.N;i++)p[i]=I[i]>=S.th?1:0;return p;};
+
+/* ---------- metrics ---------- */
+function components(a){
+  const {nx,ny,N}=G,lab=new Int32Array(N);let c=0;const st=[];
+  for(let i=0;i<N;i++){if(!a[i]||lab[i])continue;c++;lab[i]=c;st.push(i);
+    while(st.length){const k=st.pop(),y=(k/nx)|0,x=k-y*nx;
+      if(x>0&&a[k-1]&&!lab[k-1]){lab[k-1]=c;st.push(k-1)}
+      if(x<nx-1&&a[k+1]&&!lab[k+1]){lab[k+1]=c;st.push(k+1)}
+      if(y>0&&a[k-nx]&&!lab[k-nx]){lab[k-nx]=c;st.push(k-nx)}
+      if(y<ny-1&&a[k+nx]&&!lab[k+nx]){lab[k+nx]=c;st.push(k+nx)}}}
+  return c;
+}
+function buildSites(){
+  const {nx,ny,dx}=G,k=Math.ceil(3.5/dx-1e-9),at=(x,y)=>(x<0||y<0||x>=nx||y>=ny)?0:T[y*nx+x];
+  sites=[];
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){
+    if(!T[y*nx+x])continue;
+    for(const [ex,ey] of dirs){
+      if(at(x+ex,y+ey))continue;
+      const px=ey!==0?1:0,py=ex!==0?1:0;let ok=true;
+      for(let o=-k;o<=k&&ok;o++){if(!at(x+o*px,y+o*py)||at(x+o*px+ex,y+o*py+ey))ok=false;}
+      if(ok)sites.push([x,y,ex,ey]);
+    }
+  }
+}
+function epeStats(I){
+  const {nx,ny,dx}=G,n=Math.ceil(14/dx),th=S.th,vals=[];let lost=0,over=0;
+  const at=(x,y)=>(x<0||y<0||x>=nx||y>=ny)?0:I[y*nx+x];
+  for(const [x,y,ex,ey] of sites){
+    const v=[];for(let j=-n;j<=n;j++)v.push(at(x+j*ex,y+j*ey));
+    let best=null;
+    for(let j=0;j<v.length-1;j++){const a=v[j],b=v[j+1];
+      if(a>=th&&b<th){const pos=(j-n)+(a-th)/(a-b);const e=(pos-0.5)*dx;if(best===null||Math.abs(e)<Math.abs(best))best=e;}}
+    if(best===null){if(v[n]<th)lost++;else over++;continue;}
+    vals.push(best);
+  }
+  let sa=0,s2=0,mx=0;for(const e of vals){sa+=Math.abs(e);s2+=e*e;if(Math.abs(e)>mx)mx=Math.abs(e);}
+  const c=vals.length||1;
+  return {mean:sa/c,rms:Math.sqrt(s2/c),max:mx,n:vals.length,lost,over,signed:vals.reduce((a,b)=>a+b,0)/c};
+}
+function metrics(P,I){
+  let inter=0,uni=0,miss=0,extra=0;
+  for(let i=0;i<G.N;i++){const t=T[i],p=P[i];if(t&&p)inter++;if(t||p)uni++;if(t&&!p)miss++;if(!t&&p)extra++;}
+  const a=G.dx*G.dx,e=epeStats(I);
+  return {iou:inter/uni,xor:(miss+extra)*a,miss:miss*a,extra:extra*a,epeMean:e.mean,epeRms:e.rms,epeMax:e.max,epeN:e.n,epeLost:e.lost,epeOver:e.over,comp:components(P),cost:costTotal(I)};
+}
+function costTotal(I){const d=S.auto.delta*Iopen(),th=S.th;let c=0;for(let i=0;i<G.N;i++)c+=T[i]?Math.max(0,th+d-I[i]):Math.max(0,I[i]-(th-d));return c;}
+
+/* ---------- OPC: rules ---------- */
+/* 규칙 값은 격자에 맞춰 반올림: 경계가 칸 중심에 걸려 한쪽만 바뀌는 문제를 막음.
+   이동량(바이어스·연장·해머헤드)은 격자 1칸의 배수, 세리프·안티세리프 한 변은 2칸의 배수 */
+function quantRules(){
+  const d=G.dx,q=v=>Math.round(v/d)*d,q2=v=>Math.round(v/(2*d))*2*d,o=S.rules;
+  return {bias:q(o.bias),ext:Math.max(0,q(o.ext)),hhw:Math.max(0,q(o.hhw)),hhl:Math.max(d,q(o.hhl)),serif:Math.max(0,q2(o.serif)),anti:Math.max(0,q2(o.anti))};
+}
+function applyRules(){
+  const r=quantRules(),b=r.bias,rects=[];S.applied=r;
+  const L=LAYOUTS[S.layout].nm,eps=G.dx/2;
+  for(const q of L)rects.push({x0:q.x0-b,y0:q.y0-b,x1:q.x1+b,y1:q.y1+b});
+  if(r.ext>0||r.hhw>0){
+    for(const q of L){
+      const w=q.x1-q.x0,h=q.y1-q.y0,ends=[];
+      if(h>w){ends.push("t","b")}else if(w>h){ends.push("l","r")}
+      for(const e of ends){
+        let free=true;
+        if(e==="t"||e==="b"){
+          const yo=e==="t"?q.y0-eps:q.y1+eps,yi=e==="t"?q.y0+eps:q.y1-eps;
+          for(let x=q.x0+eps;x<q.x1;x+=G.dx)if(inTarget(x,yo))free=false;
+          if(inTarget(q.x0-eps,yi)||inTarget(q.x1+eps,yi))free=false;
+          if(!free)continue;
+          const s=e==="t"?-1:1,edge=(e==="t"?q.y0-b:q.y1+b);
+          const out=edge+s*r.ext;
+          if(r.ext>0)rects.push({x0:q.x0-b,x1:q.x1+b,y0:Math.min(edge,out),y1:Math.max(edge,out)});
+          if(r.hhw>0){const inn=out-s*r.hhl;rects.push({x0:q.x0-b-r.hhw,x1:q.x1+b+r.hhw,y0:Math.min(out,inn),y1:Math.max(out,inn)});}
+        }else{
+          const xo=e==="l"?q.x0-eps:q.x1+eps,xi=e==="l"?q.x0+eps:q.x1-eps;
+          for(let y=q.y0+eps;y<q.y1;y+=G.dx)if(inTarget(xo,y))free=false;
+          if(inTarget(xi,q.y0-eps)||inTarget(xi,q.y1+eps))free=false;
+          if(!free)continue;
+          const s=e==="l"?-1:1,edge=(e==="l"?q.x0-b:q.x1+b);
+          const out=edge+s*r.ext;
+          if(r.ext>0)rects.push({y0:q.y0-b,y1:q.y1+b,x0:Math.min(edge,out),x1:Math.max(edge,out)});
+          if(r.hhw>0){const inn=out-s*r.hhl;rects.push({y0:q.y0-b-r.hhw,y1:q.y1+b+r.hhw,x0:Math.min(out,inn),x1:Math.max(out,inn)});}
+        }
+      }
+    }
+  }
+  const base=raster(rects,new Uint8Array(G.N),1);
+  const out=base.slice();
+  if(r.serif>0||r.anti>0){
+    const {nx,ny,dx,m}=G,at=(x,y)=>(x<0||y<0||x>=nx||y>=ny)?0:base[y*nx+x];
+    const sq=(cx,cy,s)=>({x0:cx-s/2,x1:cx+s/2,y0:cy-s/2,y1:cy+s/2});
+    const add=[],rem=[];
+    for(let vy=0;vy<=ny;vy++)for(let vx=0;vx<=nx;vx++){
+      const c=at(vx-1,vy-1)+at(vx,vy-1)+at(vx-1,vy)+at(vx,vy);
+      const X=vx*dx-m,Y=vy*dx-m;
+      if(c===1&&r.serif>0)add.push(sq(X,Y,r.serif));
+      if(c===3&&r.anti>0)rem.push(sq(X,Y,r.anti));
+    }
+    raster(add,out,1);raster(rem,out,0);
+  }
+  M=out;
+}
+
+/* ---------- OPC: auto (greedy pixel flip) ---------- */
+function buildDist(){
+  const {nx,ny,dx,N}=G,band=S.auto.band,rb=Math.ceil(band/dx)+1;dist=new Float64Array(N).fill(Infinity);
+  for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){
+    const i=y*nx+x,t=T[i];
+    const bd=(x>0&&T[i-1]!==t)||(x<nx-1&&T[i+1]!==t)||(y>0&&T[i-nx]!==t)||(y<ny-1&&T[i+nx]!==t);
+    if(!bd)continue;
+    for(let v=-rb;v<=rb;v++)for(let u=-rb;u<=rb;u++){const X=x+u,Y=y+v;if(X<0||Y<0||X>=nx||Y>=ny)continue;
+      const d=Math.hypot(u,v)*dx,j=Y*nx+X;if(d<dist[j])dist[j]=d;}
+  }
+}
+function opcIteration(){
+  const {nx,ny}=G,{R,n,w}=K,th=S.th,d=S.auto.delta*Iopen(),band=S.auto.band;
+  const cp=(I,t)=>t?Math.max(0,th+d-I):Math.max(0,I-(th-d));
+  let changed=0;
+  for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){
+    const i=y*nx+x;if(dist[i]>band)continue;const m=M[i];
+    const bd=(x>0&&M[i-1]!==m)||(x<nx-1&&M[i+1]!==m)||(y>0&&M[i-nx]!==m)||(y<ny-1&&M[i+nx]!==m);
+    if(!bd)continue;
+    const sg=m?-1:1;let dc=0;
+    const v0=Math.max(-R,-y),v1=Math.min(R,ny-1-y),u0=Math.max(-R,-x),u1=Math.min(R,nx-1-x);
+    for(let v=v0;v<=v1;v++){const ro=(y+v)*nx+x,ko=(v+R)*n+R;for(let u=u0;u<=u1;u++){const j=ro+u,Ij=I1[j],t=T[j];dc+=cp(Ij+sg*w[ko+u],t)-cp(Ij,t);}}
+    if(dc<-1e-12){
+      for(let v=v0;v<=v1;v++){const ro=(y+v)*nx+x,ko=(v+R)*n+R;for(let u=u0;u<=u1;u++)I1[ro+u]+=sg*w[ko+u];}
+      M[i]=1-m;changed++;
+    }
+  }
+  return changed;
+}
+async function runAuto(){
+  if(running)return;running=true;stopFlag=false;
+  $("runAuto").disabled=true;$("stopAuto").disabled=false;
+  buildDist();I1=convolve(M);P1=develop(I1);
+  history=[{it:0,...pick(metrics(P1,I1))}];
+  const N=S.auto.iters;
+  for(let k=1;k<=N;k++){
+    if(stopFlag)break;
+    const ch=opcIteration();
+    I1=convolve(M);P1=develop(I1);met1=metrics(P1,I1);
+    history.push({it:k,flips:ch,...pick(met1)});
+    setStatus(`자동 보정 ${k}/${N}회 · 바뀐 칸 ${ch} · IoU ${met1.iou.toFixed(4)}`);
+    drawAfter();drawMetrics();drawHist();
+    await new Promise(r=>setTimeout(r,0));
+    if(ch===0){setStatus(`${k}회에서 수렴 (더 바꿀 칸 없음) · IoU ${met1.iou.toFixed(4)}`);break;}
+  }
+  opcLog.push({step:"auto",iters:history.length-1,band:S.auto.band,delta:S.auto.delta,iouAfter:met1.iou});
+  running=false;$("runAuto").disabled=false;$("stopAuto").disabled=true;
+}
+const pick=m=>({iou:m.iou,xor:m.xor,epeMean:m.epeMean,cost:m.cost});
+
+/* ---------- pipeline ---------- */
+function rebuildAll(keepMask){
+  makeGrid();T=raster(LAYOUTS[S.layout].nm,new Uint8Array(G.N),1);
+  if(!keepMask||!M||M.length!==G.N){M=T.slice();history=[];opcLog=[];}
+  buildSites();recompute();
+}
+function recompute(){
+  buildKernel();
+  I0=convolve(T);P0=develop(I0);met0=metrics(P0,I0);
+  I1=convolve(M);P1=develop(I1);met1=metrics(P1,I1);
+  drawAll();
+}
+
+/* ---------- drawing ---------- */
+const VIR=[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]];
+function cmap(t){t=Math.max(0,Math.min(1,t))*(VIR.length-1);const i=Math.min(VIR.length-2,Math.floor(t)),f=t-i,a=VIR[i],b=VIR[i+1];return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f];}
+function hex(c){c=c.replace("#","");if(c.length===3)c=c.split("").map(x=>x+x).join("");return [parseInt(c.slice(0,2),16),parseInt(c.slice(2,4),16),parseInt(c.slice(4,6),16)];}
+const ML=56,MB=30,MT=8,MR=10;
+function scale(){return Math.max(2,Math.round(560/G.nx));}
+function setupCanvas(cv){const s=scale();cv.width=ML+G.nx*s+MR;cv.height=MT+G.ny*s+MB;const c=cv.getContext("2d");c.imageSmoothingEnabled=false;return [c,s];}
+function drawField(cv,fn){
+  const [c,s]=setupCanvas(cv);
+  c.fillStyle=css("--panel");c.fillRect(0,0,cv.width,cv.height);
+  const img=new ImageData(G.nx,G.ny);
+  for(let i=0;i<G.N;i++){const [r,g,b]=fn(i);img.data[i*4]=r;img.data[i*4+1]=g;img.data[i*4+2]=b;img.data[i*4+3]=255;}
+  const off=document.createElement("canvas");off.width=G.nx;off.height=G.ny;off.getContext("2d").putImageData(img,0,0);
+  c.drawImage(off,ML,MT,G.nx*s,G.ny*s);
+  axes(c,s);return [c,s];
+}
+function axes(c,s){
+  const {m,dx,W,H}=G,X=v=>ML+(v+m)/dx*s,Y=v=>MT+(v+m)/dx*s;
+  c.strokeStyle=css("--muted");c.lineWidth=1.5;c.setLineDash([6,5]);c.strokeRect(X(0),Y(0),X(W)-X(0),Y(H)-Y(0));c.setLineDash([]);
+  c.fillStyle=css("--muted");c.font=`17px ${css("--f-mono")}`;c.textAlign="right";c.textBaseline="middle";
+  for(let v=0;v<=H+1e-6;v+=31.5){c.fillText(String(v),ML-6,Y(v));c.fillRect(ML-4,Y(v)-0.5,4,1);}
+  c.textAlign="center";c.textBaseline="top";
+  const step=W>100?31.5:31.5;
+  for(let v=0;v<=W+1e-6;v+=step){c.fillText(String(v),X(v),MT+G.ny*s+5);c.fillRect(X(v)-0.5,MT+G.ny*s,1,4);}
+}
+function edges(c,s,arr,color,lw){
+  const {nx,ny}=G;c.strokeStyle=color;c.lineWidth=lw;c.beginPath();
+  for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const a=arr[y*nx+x];
+    if(x<nx-1&&a!==arr[y*nx+x+1]){const X=ML+(x+1)*s;c.moveTo(X,MT+y*s);c.lineTo(X,MT+(y+1)*s);}
+    if(y<ny-1&&a!==arr[(y+1)*nx+x]){const Y=MT+(y+1)*s;c.moveTo(ML+x*s,Y);c.lineTo(ML+(x+1)*s,Y);}
+    if((x===0||x===nx-1)&&a){const X=ML+(x===0?0:nx)*s;c.moveTo(X,MT+y*s);c.lineTo(X,MT+(y+1)*s);}
+    if((y===0||y===ny-1)&&a){const Y=MT+(y===0?0:ny)*s;c.moveTo(ML+x*s,Y);c.lineTo(ML+(x+1)*s,Y);}
+  }
+  c.stroke();
+}
+function drawBin(cv,arr,outline){
+  const bg=hex(css("--panel")),fg=hex(css("--metal"));
+  const [c,s]=drawField(cv,i=>arr[i]?fg:bg);
+  if(outline)edges(c,s,T,css("--ink"),1.5);
+}
+function drawInt(cv,I){
+  const mx=Math.max(Iopen(),1e-9);
+  const [c,s]=drawField(cv,i=>cmap(I[i]/mx));
+  edges(c,s,develop(I),css("--contour"),2);
+  drawCut(c,s,"#ffffff");
+}
+function drawOv(cv,P){
+  const bg=hex(css("--panel")),ok=hex(css("--metal-soft")),mi=hex(css("--miss")),ex=hex(css("--extra"));
+  const [c,s]=drawField(cv,i=>T[i]&&P[i]?ok:T[i]?mi:P[i]?ex:bg);
+  edges(c,s,T,css("--ink"),1.2);
+  drawCut(c,s,css("--ink"));
+}
+/* ---------- cross-section measurement ---------- */
+const MS={x1:35,y1:94.5,x2:60,y2:94.5,pick:0,res:null};
+function nmToCv(s,x,y){return [ML+(x+G.m)/G.dx*s,MT+(y+G.m)/G.dx*s];}
+function cvToNm(cv,e){const r=cv.getBoundingClientRect(),s=scale();const px=(e.clientX-r.left)*cv.width/r.width,py=(e.clientY-r.top)*cv.height/r.height;
+  return [(px-ML)/s*G.dx-G.m,(py-MT)/s*G.dx-G.m];}
+let hideCut=false;
+function drawCut(c,s,col){
+  if(hideCut)return;
+  const [a,b]=nmToCv(s,MS.x1,MS.y1),[d,e]=nmToCv(s,MS.x2,MS.y2);
+  c.save();c.strokeStyle=col;c.lineWidth=2.5;c.setLineDash([8,5]);c.beginPath();c.moveTo(a,b);c.lineTo(d,e);c.stroke();c.setLineDash([]);
+  c.fillStyle=col;c.beginPath();c.arc(a,b,5,0,7);c.fill();c.beginPath();c.moveTo(d,e);c.arc(d,e,5,0,7);c.stroke();c.restore();
+}
+function Iat(I,x,y){
+  const {dx,m,nx,ny}=G,fx=(x+m)/dx-0.5,fy=(y+m)/dx-0.5,ix=Math.floor(fx),iy=Math.floor(fy),tx=fx-ix,ty=fy-iy;
+  const g=(a,b)=>(a<0||b<0||a>=nx||b>=ny)?0:I[b*nx+a];
+  return g(ix,iy)*(1-tx)*(1-ty)+g(ix+1,iy)*tx*(1-ty)+g(ix,iy+1)*(1-tx)*ty+g(ix+1,iy+1)*tx*ty;
+}
+function measure(){
+  const {x1,y1,x2,y2}=MS,L=Math.hypot(x2-x1,y2-y1);if(L<0.5){MS.res=null;return;}
+  const st=0.02,n=Math.ceil(L/st),ux=(x2-x1)/L,uy=(y2-y1)/L,th=S.th;
+  const horiz=Math.abs(y2-y1)<1e-9,vert=Math.abs(x2-x1)<1e-9;
+  const axis=horiz?"x":vert?"y":"s";const coord=t=>horiz?x1+ux*t:vert?y1+uy*t:t;
+  const s=[],a=[],b=[],t=[];
+  for(let k=0;k<=n;k++){const d=Math.min(L,k*st),x=x1+ux*d,y=y1+uy*d;s.push(d);a.push(Iat(I0,x,y));b.push(Iat(I1,x,y));t.push(inTarget(x,y)?1:0);}
+  const segI=arr=>{const out=[];let st0=arr[0]>=th?0:null;
+    for(let k=0;k<n;k++){const p=arr[k]>=th,q=arr[k+1]>=th;if(p!==q){const f=(arr[k]-th)/(arr[k]-arr[k+1]),pos=s[k]+f*(s[k+1]-s[k]);if(q)st0=pos;else{out.push([st0,pos]);st0=null;}}}
+    if(st0!==null)out.push([st0,L]);return out;};
+  const edgeAt=(a,b)=>{const ta=inTarget(x1+ux*a,y1+uy*a);for(let k=0;k<40;k++){const mid=(a+b)/2;if(inTarget(x1+ux*mid,y1+uy*mid)===ta)a=mid;else b=mid;}return (a+b)/2;};
+  const segT=()=>{const out=[];let st0=t[0]?0:null;for(let k=0;k<n;k++){if(t[k]!==t[k+1]){const pos=edgeAt(s[k],s[k+1]);if(t[k+1])st0=pos;else{out.push([st0,pos]);st0=null;}}}if(st0!==null)out.push([st0,L]);return out;};
+  // snap target edges to exact geometry (edge lies within ±st/2)
+  const rng=arr=>{let mn=Infinity,mx=-Infinity;for(const v of arr){if(v<mn)mn=v;if(v>mx)mx=v;}return [mn,mx];};
+  // minimum intensity inside each target gap
+  const gapMin=(arr,tg)=>{const res=[];for(let k=0;k+1<tg.length;k++){const g0=tg[k][1],g1=tg[k+1][0];let mn=Infinity;for(let j=0;j<=n;j++)if(s[j]>g0&&s[j]<g1)mn=Math.min(mn,arr[j]);res.push(mn);}return res;};
+  const tg=segT();
+  MS.res={L,axis,coord,s,a,b,t,tg,pa:segI(a),pb:segI(b),ra:rng(a),rb:rng(b),ga:gapMin(a,tg),gb:gapMin(b,tg)};
+}
+function drawProfile(){
+  const cv=$("prof"),tb=$("ptab").tBodies[0];tb.innerHTML="";const R=MS.res;
+  const dpr=2,W=cv.clientWidth||600,H=215;cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+"px";const c=cv.getContext("2d");c.scale(dpr,dpr);c.clearRect(0,0,W,H);
+  $("profCap").textContent=`(${MS.x1}, ${MS.y1}) → (${MS.x2}, ${MS.y2}) nm`;
+  if(!R){c.fillStyle=css("--muted");c.font=`12px ${css("--f-body")}`;c.fillText("시작점과 끝점이 너무 가깝습니다.",10,20);return;}
+  const pl=56,pr=10,pt=10,pb=40,top=Math.ceil(Math.max(S.th,R.ra[1],R.rb[1])*1.08/0.25)*0.25;
+  const c0=R.coord(0),c1=R.coord(R.L),lo=Math.min(c0,c1),hi=Math.max(c0,c1);
+  const X=d=>{const v=R.coord(d);return pl+(W-pl-pr)*(v-lo)/(hi-lo||1);},Y=v=>pt+(H-pt-pb)*(1-v/top);
+  c.fillStyle=css("--metal-soft");for(const [p,q] of R.tg){const a=X(p),b=X(q);c.fillRect(Math.min(a,b),pt,Math.abs(b-a),H-pt-pb);}
+  c.strokeStyle=css("--line");c.lineWidth=1;c.beginPath();for(let v=0;v<=top+1e-9;v+=0.25){c.moveTo(pl,Y(v));c.lineTo(W-pr,Y(v));}c.stroke();
+  c.fillStyle=css("--muted");c.font=`11px ${css("--f-mono")}`;c.textAlign="right";c.textBaseline="middle";for(let v=0;v<=top+1e-9;v+=0.25)c.fillText(v.toFixed(2),pl-4,Y(v));
+  c.textBaseline="top";const nt=6;for(let k=0;k<=nt;k++){const v=lo+(hi-lo)*k/nt,xp=pl+(W-pl-pr)*k/nt;c.textAlign=k===nt?"right":"center";c.fillText(v.toFixed(1),k===nt?xp+pr:xp,H-pb+5);}
+  c.textAlign="center";c.textBaseline="bottom";c.font=`12px ${css("--f-body")}`;c.fillText(R.axis==="s"?"시작점부터 거리 (nm)":`${R.axis} (nm)`,pl+(W-pl-pr)/2,H-2);
+  c.save();c.translate(11,pt+(H-pt-pb)/2);c.rotate(-Math.PI/2);c.textBaseline="middle";c.fillText("노광량",0,0);c.restore();c.textBaseline="top";c.font=`11px ${css("--f-mono")}`;
+  c.strokeStyle=css("--contour");c.setLineDash([5,4]);c.beginPath();c.moveTo(pl,Y(S.th));c.lineTo(W-pr,Y(S.th));c.stroke();c.setLineDash([]);
+  const line=(arr,col,w)=>{c.strokeStyle=col;c.lineWidth=w;c.beginPath();const step=Math.max(1,Math.floor(arr.length/800));for(let k=0;k<arr.length;k+=step){const x=X(R.s[k]),y=Y(arr[k]);k?c.lineTo(x,y):c.moveTo(x,y);}c.stroke();};
+  line(R.a,css("--muted"),1.6);line(R.b,css("--accent"),2);
+  const fix=sg=>sg.map(([p,q])=>{const A=R.coord(p),B=R.coord(q);return [Math.min(A,B),Math.max(A,B)];}).sort((u,v)=>u[0]-v[0]);
+  const T2=fix(R.tg),A2=fix(R.pa),B2=fix(R.pb);
+  const segTxt=sg=>sg.length?sg.map(([p,q])=>`${p.toFixed(2)} ~ ${q.toFixed(2)}`).join("<br>"):"없음";
+  const add=(name,t,a,b)=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${name}</td><td>${t}</td><td>${a}</td><td>${b}</td>`;tb.appendChild(tr);};
+  add(`패턴 구간 (${R.axis==="s"?"시작점부터 거리":R.axis}, nm)`,segTxt(T2),segTxt(A2),segTxt(B2));
+  add("구간 개수",T2.length,A2.length,B2.length);
+  if(T2.length&&T2.length===A2.length&&T2.length===B2.length){
+    T2.forEach((tq,k)=>{const w=tq[1]-tq[0],d=(seg)=>`시작 ${(seg[0]-tq[0]>=0?"+":"")+(seg[0]-tq[0]).toFixed(2)} · 끝 ${(seg[1]-tq[1]>=0?"+":"")+(seg[1]-tq[1]).toFixed(2)}<br>폭 ${(seg[1]-seg[0]).toFixed(2)} (${(seg[1]-seg[0]-w>=0?"+":"")+(seg[1]-seg[0]-w).toFixed(2)})`;
+      add(`${k+1}번째 구간 비교`,`폭 ${w.toFixed(2)}`,d(A2[k]),d(B2[k]));});
+  }else if(T2.length){add("구간 비교","—","목표와 구간 개수가 다릅니다. 패턴이 사라졌거나 끊겼거나 붙었는지 그림에서 확인하세요.","");}
+  R.ga.forEach((g,k)=>add(`${k+1}번째 틈 안 최소 노광량`,`임계값 ${S.th}`,`${g.toFixed(3)} ${g>=S.th?'<span class="down">붙음</span>':'<span class="up">안 붙음</span>'}`,`${R.gb[k].toFixed(3)} ${R.gb[k]>=S.th?'<span class="down">붙음</span>':'<span class="up">안 붙음</span>'}`));
+  add("선 위 노광량 최소 / 최대","",`${R.ra[0].toFixed(3)} / ${R.ra[1].toFixed(3)}`,`${R.rb[0].toFixed(3)} / ${R.rb[1].toFixed(3)}`);
+}
+function runMeasure(){measure();drawProfile();}
+function syncMeasureInputs(){$("mx1").value=MS.x1;$("my1").value=MS.y1;$("mx2").value=MS.x2;$("my2").value=MS.y2;}
+const MEASURE_DEFAULT={INV_X1:[35,94.5,60,94.5],NAND2_X4:[65,130,92.5,130]};
+function drawKernel(){
+  const cv=$("kern"),{R,n,w}=K,show=Math.min(R,6),cnt=2*show+1,cs=Math.floor(560/cnt);
+  cv.width=cs*cnt;cv.height=cs*cnt;const c=cv.getContext("2d");
+  const center=w[R*n+R]||1;
+  c.fillStyle=css("--panel");c.fillRect(0,0,cv.width,cv.height);
+  for(let v=-show;v<=show;v++)for(let u=-show;u<=show;u++){
+    const val=w[(v+R)*n+u+R]/center;const [r,g,b]=cmap(val);
+    const X=(u+show)*cs,Y=(v+show)*cs;c.fillStyle=`rgb(${r|0},${g|0},${b|0})`;c.fillRect(X,Y,cs-1,cs-1);
+    if(cs>=34){const rel=val*10;if(rel>=0.05){c.fillStyle=val>0.55?"#1b1b1b":"#ffffff";c.font=`${Math.min(22,cs*0.32)|0}px ${css("--f-mono")}`;c.textAlign="center";c.textBaseline="middle";c.fillText(rel>=9.95?rel.toFixed(0):rel.toFixed(1),X+cs/2,Y+cs/2);}}
+  }
+  $("kLegend").textContent=`1칸 = ${G.dx} nm · 커널 ${n}×${n}칸 (반경 ${(R*G.dx).toFixed(2)} nm)`+(R>show?` · 가운데 ${cnt}×${cnt}만 표시`:"");
+}
+function drawCbar(){
+  const cv=$("cbar"),c=cv.getContext("2d");
+  for(let x=0;x<cv.width;x++){const [r,g,b]=cmap(x/(cv.width-1));c.fillStyle=`rgb(${r|0},${g|0},${b|0})`;c.fillRect(x,0,1,cv.height);}
+  const tx=Math.round(S.th/Math.max(Iopen(),1e-9)*(cv.width-1));c.fillStyle=css("--contour");c.fillRect(Math.max(0,Math.min(cv.width-2,tx-1)),0,2,cv.height);
+  $("cbarMax").textContent=`${Iopen().toFixed(3)} (넓은 개구부)`;
+}
+function drawHist(){
+  const cv=$("hist"),dpr=2,W=cv.clientWidth||400,H=90;cv.width=W*dpr;cv.height=H*dpr;
+  const c=cv.getContext("2d");c.scale(dpr,dpr);c.clearRect(0,0,W,H);
+  const pl=42,pr=10,pt=8,pb=20;
+  c.font=`11px ${css("--f-mono")}`;c.fillStyle=css("--muted");c.strokeStyle=css("--line");
+  if(history.length<2){c.textAlign="left";c.textBaseline="middle";c.fillText("자동 OPC를 실행하면 반복별 IoU가 그려집니다.",pl,H/2);return;}
+  const ys=history.map(h=>h.iou),lo=Math.min(...ys),hi=Math.max(...ys),a=Math.max(0,lo-0.01),b=Math.min(1,hi+0.01);
+  const X=i=>pl+(W-pl-pr)*i/(history.length-1),Y=v=>pt+(H-pt-pb)*(1-(v-a)/(b-a||1));
+  c.lineWidth=1;c.beginPath();for(const v of [a,(a+b)/2,b]){c.moveTo(pl,Y(v));c.lineTo(W-pr,Y(v));}c.stroke();
+  c.textAlign="right";c.textBaseline="middle";for(const v of [a,b])c.fillText(v.toFixed(3),pl-4,Y(v));
+  const last=history.length-1,stp=last<=10?1:last<=30?5:10;
+  c.textBaseline="top";c.strokeStyle=css("--line");
+  for(let i=0;i<=last;i+=stp){c.textAlign=i===0?"left":"center";c.fillText(String(i),X(i),H-pb+4);c.beginPath();c.moveTo(X(i),H-pb);c.lineTo(X(i),H-pb+3);c.stroke();}
+  if(last%stp&&X(last)-X(last-last%stp)>16){c.textAlign="center";c.fillText(String(last),X(last),H-pb+4);}
+  c.strokeStyle=css("--accent");c.lineWidth=2;c.beginPath();history.forEach((h,i)=>{i?c.lineTo(X(i),Y(h.iou)):c.moveTo(X(i),Y(h.iou));});c.stroke();
+  c.fillStyle=css("--accent");history.forEach((h,i)=>{c.beginPath();c.arc(X(i),Y(h.iou),i===last||i===histHover?4:2,0,7);c.fill();});
+  if(histHover!==null&&history[histHover]){const x=X(histHover);c.strokeStyle=css("--muted");c.lineWidth=1;c.setLineDash([3,3]);c.beginPath();c.moveTo(x,pt);c.lineTo(x,H-pb);c.stroke();c.setLineDash([]);}
+  histGeom={pl,pr,W,last};
+}
+let histHover=null,histGeom=null;
+function histText(i){const h=history[i];if(!h)return"";const prev=i>0?history[i-1].iou:null;
+  return `${i}회: IoU ${h.iou.toFixed(4)}`+(prev!==null?` (직전보다 ${(h.iou-prev>=0?"+":"")+(h.iou-prev).toFixed(4)})`:" (시작 마스크)")+(h.flips!==undefined?` · 바뀐 칸 ${h.flips}`:"")+` · 평균 EPE ${h.epeMean.toFixed(2)} nm`;}
+const ROWS=[
+ ["IoU (높을수록 좋음)","iou",v=>v.toFixed(4),1],
+ ["불일치 면적 (nm²)","xor",v=>v.toFixed(1),-1],
+ ["  미형성 면적 (nm²)","miss",v=>v.toFixed(1),-1],
+ ["  과형성 면적 (nm²)","extra",v=>v.toFixed(1),-1],
+ ["평균 |EPE| (nm)","epeMean",v=>v.toFixed(2),-1],
+ ["RMS EPE (nm)","epeRms",v=>v.toFixed(2),-1],
+ ["최대 |EPE| (nm)","epeMax",v=>v.toFixed(2),-1],
+ ["경계 미형성 측정점 (개)","epeLost",v=>String(v),-1],
+ ["패턴 개수 (목표 TGT)","comp",v=>String(v),0],
+];
+function drawMetrics(){
+  const tb=$("mtab").tBodies[0];tb.innerHTML="";
+  const tgtComp=components(T);
+  for(const [name,key,f,dir] of ROWS){
+    const a=met0[key],b=met1[key],tr=document.createElement("tr");
+    let ch="";
+    if(dir!==0){const d=b-a;const good=dir*d>1e-12,bad=dir*d<-1e-12;
+      const pct=Math.abs(a)>1e-12?` (${(d/Math.abs(a)*100).toFixed(1)}%)`:"";
+      ch=`<span class="${good?"up":bad?"down":""}">${d>=0?"+":""}${f(d)}${pct}</span>`;}
+    else{ch=(b===tgtComp)?`<span class="up">목표와 같음</span>`:`<span class="down">목표 ${tgtComp}개</span>`;}
+    tr.innerHTML=`<td>${name.replace("TGT",tgtComp)}</td><td>${f(a)}</td><td>${f(b)}</td><td>${ch}</td>`;
+    tb.appendChild(tr);
+  }
+  const tr=document.createElement("tr");tr.innerHTML=`<td>EPE 측정점 (전체 ${sites.length})</td><td>${met0.epeN}</td><td>${met1.epeN}</td><td></td>`;tb.appendChild(tr);
+}
+function drawAfter(){drawBin($("mask1"),M,true);drawInt($("int1"),I1);drawBin($("pr1"),P1,true);drawOv($("ov1"),P1);runMeasure();}
+function drawAll(){
+  drawBin($("tgt"),T,false);drawKernel();drawCbar();
+  drawBin($("mask0"),T,false);drawInt($("int0"),I0);drawBin($("pr0"),P0,true);drawOv($("ov0"),P0);
+  drawAfter();drawMetrics();drawHist();
+  const L=LAYOUTS[S.layout];
+  $("tgtInfo").textContent=`${L.W}×${L.H} nm · 사각형 ${L.rects.length}개`;
+  $("condLine").textContent=condText();
+  $("kInfo").textContent=`커널 합 ${K.rawSum.toFixed(3)}${S.norm?" → 1로 정규화":" (정규화 안 함)"} · 넓은 개구부 노광량 = ${Iopen().toFixed(3)}`;
+  $("toneDesc").textContent=S.tone==="neg"
+    ?"마스크 투과부 = M1. 노광량 ≥ 임계값인 영역은 가교되어 현상 후 남고, 그 영역이 M1 패턴이 됩니다."
+    :"다크필드 마스크 투과부 = M1 트렌치. 노광량 ≥ 임계값인 영역은 현상으로 제거되어 트렌치가 되고, 금속을 채워 M1 패턴이 됩니다.";
+  $("qStep1").textContent=G.dx;$("qStep2").textContent=2*G.dx;
+  for(const k of ["bias","ext","hhw","hhl"])$(k).step=String(G.dx);for(const k of ["serif","anti"])$(k).step=String(2*G.dx);
+  $("thR").max=String(+(Iopen()).toFixed(3));$("thR").step=String(Iopen()/100);
+  $("maskHint").textContent=S.brush.mode==="add"?"클릭·드래그로 추가":S.brush.mode==="del"?"클릭·드래그로 지우기":"";
+}
+function condText(){
+  const k=S.ktype==="gauss"?`가우시안 σ=${S.sigma} nm, 범위 ${S.trunc}σ`:`5×5 표, 칸 간격 ${S.cell} nm`;
+  return `${S.layout} · 격자 ${G.dx} nm · 계산 영역 ${(G.nx*G.dx).toFixed(2)}×${(G.ny*G.dx).toFixed(2)} nm (${G.nx}×${G.ny}칸, 여백 ${G.m} nm) · ${k}${S.norm?", 정규화":""} · 임계값 ${S.th}`;
+}
+function setStatus(t){$("status").textContent=t;}
+
+/* ---------- export / import ---------- */
+function exportObj(){
+  const rows=[];for(let y=0;y<G.ny;y++){let s="";for(let x=0;x<G.nx;x++)s+=M[y*G.nx+x];rows.push(s);}
+  const r=o=>{const z={};for(const k in o)z[k]=typeof o[k]==="number"?+o[k].toFixed(6):o[k];return z;};
+  return {app:"M1 OPC 시뮬레이터",version:1,exportedAt:new Date().toISOString(),
+    conditions:{layout:S.layout,grid_nm:G.dx,margin_nm:G.m,nx:G.nx,ny:G.ny,
+      kernel:S.ktype==="gauss"?{type:"gaussian",sigma_nm:S.sigma,truncate_sigma:S.trunc,normalized:S.norm,size:K.n}:{type:"table5x5",table:S.table,cell_nm:S.cell,normalized:S.norm,size:K.n},
+      open_area_intensity:+Iopen().toFixed(6),threshold:S.th,resist:S.tone==="neg"?"negative: I>=th remains (M1)":"positive+dark-field (damascene): I>=th removed -> trench -> M1",
+      epe_corner_exclusion_nm:3.5},
+    opc:{rules:{...S.rules},auto:{...S.auto},log:opcLog},
+    metrics:{before:r(met0),after:r(met1)},history:history.map(r),
+    cross_section:MS.res?{from:[MS.x1,MS.y1],to:[MS.x2,MS.y2],axis:MS.res.axis,
+      target:MS.res.tg.map(([p,q])=>[+MS.res.coord(p).toFixed(3),+MS.res.coord(q).toFixed(3)]),
+      before:MS.res.pa.map(([p,q])=>[+MS.res.coord(p).toFixed(3),+MS.res.coord(q).toFixed(3)]),
+      after:MS.res.pb.map(([p,q])=>[+MS.res.coord(p).toFixed(3),+MS.res.coord(q).toFixed(3)]),
+      gap_min_before:MS.res.ga.map(v=>+v.toFixed(4)),gap_min_after:MS.res.gb.map(v=>+v.toFixed(4))}:null,
+    mask_rows:rows};
+}
+function csvText(){
+  let s="metric,before,after\n";for(const [name,key] of ROWS)s+=`"${name.trim().replace("TGT",components(T))}",${met0[key]},${met1[key]}\n`;
+  s+=`EPE sites,${met0.epeN},${met1.epeN}\n\niteration,flips,IoU,XOR_nm2,meanEPE_nm,cost\n`;
+  for(const h of history)s+=`${h.it},${h.flips??""},${h.iou},${h.xor},${h.epeMean},${h.cost}\n`;
+  return s;
+}
+function tryDownload(name,href){try{const a=document.createElement("a");a.href=href;a.download=name;document.body.appendChild(a);a.click();a.remove();}catch(e){}}
+function copyText(id){const ta=$(id);navigator.clipboard?.writeText(ta.value).then(()=>io("복사했습니다.")).catch(()=>{ta.select();io("자동 복사가 막혀 있어 글상자를 선택했습니다. Ctrl+C로 복사하세요.");});}
+function io(t){$("ioStatus").textContent=t;}
+function fname(ext){return `OPC_${S.layout}_${new Date().toISOString().slice(0,16).replace(/[:T]/g,"")}.${ext}`;}
+function compositeFigure(){
+  // 논문용: 측정 점선 없이, 라이트 색으로 다시 그린 뒤 2줄×4칸으로 배치
+  const root=document.documentElement,prevTheme=root.getAttribute("data-theme");
+  hideCut=true;root.setAttribute("data-theme","light");drawAll();
+  const ids=["mask0","int0","pr0","ov0","mask1","int1","pr1","ov1"],caps=["마스크","노광 분포","현상 후 패턴","목표와 중첩"];
+  const pw=$("mask0").width,ph=$("mask0").height;
+  const pad=28,rowW=64,gap=22,head=150,colH=46,legH=120;
+  const W=pad+rowW+pw*4+gap*3+pad,H=head+colH+ph*2+gap+legH;
+  const cv=document.createElement("canvas");cv.width=W;cv.height=H;const c=cv.getContext("2d");
+  const ink="#15212a",mut="#5a6a76",fb=css("--f-body"),fm=css("--f-mono");
+  c.fillStyle="#ffffff";c.fillRect(0,0,W,H);
+  c.fillStyle=ink;c.font=`bold 34px ${fb}`;c.textBaseline="alphabetic";c.fillText(`${S.layout} Metal1 OPC 보정 전·후 비교`,pad,50);
+  c.font=`19px ${fm}`;c.fillStyle=mut;c.fillText(condText(),pad,88);
+  c.fillText(`IoU ${met0.iou.toFixed(4)} → ${met1.iou.toFixed(4)} · 불일치 면적 ${met0.xor.toFixed(1)} → ${met1.xor.toFixed(1)} nm² · 평균 |EPE| ${met0.epeMean.toFixed(2)} → ${met1.epeMean.toFixed(2)} nm · 패턴 개수 ${met0.comp} → ${met1.comp}`,pad,118);
+  const x0=pad+rowW,y0=head+colH;
+  c.fillStyle=ink;c.font=`bold 24px ${fb}`;c.textAlign="center";
+  caps.forEach((t,k)=>c.fillText(t,x0+k*(pw+gap)+pw/2,head+32));
+  ["보정 전","보정 후"].forEach((t,row)=>{const yc=y0+row*(ph+gap)+ph/2;c.save();c.translate(pad+rowW/2-4,yc);c.rotate(-Math.PI/2);c.fillText(t,0,8);c.restore();});
+  c.textAlign="left";
+  ids.forEach((id,i)=>{const row=Math.floor(i/4),k=i%4,x=x0+k*(pw+gap),y=y0+row*(ph+gap);
+    c.drawImage($(id),x,y);c.strokeStyle="#d3dce2";c.lineWidth=1;c.strokeRect(x+0.5,y+0.5,pw-1,ph-1);
+    const L=`(${"abcdefgh"[i]})`;c.font=`bold 22px ${fb}`;const tw=c.measureText(L).width;
+    c.fillStyle="rgba(255,255,255,0.9)";c.fillRect(x+ML+4,y+MT+4,tw+10,30);c.fillStyle=ink;c.fillText(L,x+ML+9,y+MT+27);});
+  // legend
+  let ly=y0+ph*2+gap+44;c.font=`20px ${fb}`;c.fillStyle=ink;
+  const sw=(x,col,t)=>{c.fillStyle=col;c.fillRect(x,ly-16,20,20);c.fillStyle=ink;c.fillText(t,x+28,ly);return x+28+c.measureText(t).width+34;};
+  let lx=pad;lx=sw(lx,"#337ab7","Metal1 (마스크·현상 패턴)");lx=sw(lx,"#a9c3d8","일치");lx=sw(lx,"#e66100","미형성 (목표 O · 결과 X)");lx=sw(lx,"#7b3fa0","과형성 (목표 X · 결과 O)");
+  ly+=46;lx=pad;c.fillStyle=ink;c.fillText("노광량",lx,ly);lx+=c.measureText("노광량").width+12;
+  const bw=260;for(let i=0;i<bw;i++){const [r,g,b]=cmap(i/(bw-1));c.fillStyle=`rgb(${r|0},${g|0},${b|0})`;c.fillRect(lx+i,ly-16,1,20);}
+  const tx=lx+S.th/Math.max(Iopen(),1e-9)*(bw-1);c.fillStyle="#ff3b30";c.fillRect(tx-1.5,ly-20,3,28);
+  c.font=`17px ${fm}`;c.fillStyle=mut;c.fillText("0",lx-2,ly+24);c.textAlign="right";c.fillText(Iopen().toFixed(2),lx+bw,ly+24);c.textAlign="center";c.fillText(`임계값 ${S.th}`,tx,ly+24);c.textAlign="left";
+  lx+=bw+34;c.font=`20px ${fb}`;c.fillStyle=ink;
+  c.strokeStyle="#ff3b30";c.lineWidth=3;c.beginPath();c.moveTo(lx,ly-6);c.lineTo(lx+28,ly-6);c.stroke();c.fillText("임계값 등고선",lx+36,ly);lx+=36+c.measureText("임계값 등고선").width+34;
+  c.strokeStyle=ink;c.lineWidth=1.5;c.beginPath();c.moveTo(lx,ly-6);c.lineTo(lx+28,ly-6);c.stroke();c.fillText("목표 경계",lx+36,ly);lx+=36+c.measureText("목표 경계").width+34;
+  c.strokeStyle=mut;c.setLineDash([6,5]);c.beginPath();c.moveTo(lx,ly-6);c.lineTo(lx+28,ly-6);c.stroke();c.setLineDash([]);c.fillText("셀 경계",lx+36,ly);
+  c.font=`16px ${fb}`;c.fillStyle=mut;c.fillText("축 단위: nm",W-pad-c.measureText("축 단위: nm").width,ly);
+  const url=cv.toDataURL("image/png");
+  hideCut=false;if(prevTheme===null)root.removeAttribute("data-theme");else root.setAttribute("data-theme",prevTheme);drawAll();
+  return url;
+}
+function profileImage(){
+  const root=document.documentElement,prevTheme=root.getAttribute("data-theme");root.setAttribute("data-theme","light");drawProfile();
+  const src=$("prof"),pad=24,head=60,leg=50,W=src.width+pad*2,H=src.height+head+leg+pad;
+  const cv=document.createElement("canvas");cv.width=W;cv.height=H;const c=cv.getContext("2d");c.fillStyle="#fff";c.fillRect(0,0,W,H);
+  c.fillStyle="#15212a";c.font=`bold 28px ${css("--f-body")}`;c.fillText(`${S.layout} 단면 프로파일  (${MS.x1}, ${MS.y1}) → (${MS.x2}, ${MS.y2}) nm`,pad,42);
+  c.drawImage(src,pad,head);
+  let lx=pad,ly=head+src.height+36;c.font=`22px ${css("--f-body")}`;
+  const it=(col,t,type)=>{c.fillStyle=col;c.strokeStyle=col;if(type==="box")c.fillRect(lx,ly-17,22,22);else{c.lineWidth=4;if(type==="dash")c.setLineDash([8,6]);c.beginPath();c.moveTo(lx,ly-6);c.lineTo(lx+30,ly-6);c.stroke();c.setLineDash([]);}
+    c.fillStyle="#15212a";c.fillText(t,lx+40,ly);lx+=40+c.measureText(t).width+40;};
+  it("#a9c3d8","목표 패턴 구간","box");it("#5a6a76","보정 전 노광량","line");it("#1d6a86","보정 후 노광량","line");it("#ff3b30",`임계값 ${S.th}`,"dash");
+  const url=cv.toDataURL("image/png");
+  if(prevTheme===null)root.removeAttribute("data-theme");else root.setAttribute("data-theme",prevTheme);drawProfile();return url;
+}
+function panelImage(ids,title){
+  // 단일/소수 패널을 흰 배경 PNG로 (목표 패턴, 커널 등)
+  const root=document.documentElement,prevTheme=root.getAttribute("data-theme");
+  root.setAttribute("data-theme","light");hideCut=true;drawAll();
+  const cvs=ids.map(id=>$(id)),gap=24,pad=20,head=title?56:0;
+  const H=Math.max(...cvs.map(v=>v.height))+pad*2+head,W=cvs.reduce((a,v)=>a+v.width,0)+gap*(cvs.length-1)+pad*2;
+  const cv=document.createElement("canvas");cv.width=W;cv.height=H;const c=cv.getContext("2d");c.fillStyle="#fff";c.fillRect(0,0,W,H);
+  if(title){c.fillStyle="#15212a";c.font=`bold 26px ${css("--f-body")}`;c.fillText(title,pad,40);}
+  let x=pad;cvs.forEach(v=>{c.drawImage(v,x,pad+head);x+=v.width+gap;});
+  const url=cv.toDataURL("image/png");
+  hideCut=false;if(prevTheme===null)root.removeAttribute("data-theme");else root.setAttribute("data-theme",prevTheme);drawAll();
+  return url;
+}
+function doImport(text){
+  try{
+    const o=JSON.parse(text),c=o.conditions;if(!c)throw new Error("conditions 항목이 없습니다");
+    S.layout=c.layout;S.dx=c.grid_nm;S.margin=c.margin_nm;S.th=c.threshold;S.tone=(c.resist||"").startsWith("positive")?"pos":"neg";
+    if(c.kernel.type==="gaussian"){S.ktype="gauss";S.sigma=c.kernel.sigma_nm;S.trunc=c.kernel.truncate_sigma;}else{S.ktype="table";S.table=c.kernel.table;S.cell=c.kernel.cell_nm;}
+    S.norm=!!c.kernel.normalized;
+    if(o.opc){Object.assign(S.rules,o.opc.rules||{});Object.assign(S.auto,o.opc.auto||{});}
+    syncInputs();rebuildAll(false);
+    if(o.mask_rows&&o.mask_rows.length===G.ny&&o.mask_rows[0].length===G.nx){for(let y=0;y<G.ny;y++)for(let x=0;x<G.nx;x++)M[y*G.nx+x]=o.mask_rows[y][x]==="1"?1:0;}
+    history=(o.history||[]);opcLog=(o.opc&&o.opc.log)||[];recompute();io("불러왔습니다: "+condText());
+  }catch(e){io("불러오지 못했습니다: "+e.message+". 이 앱에서 내보낸 JSON인지 확인하세요.");}
+}
+
+/* ---------- UI wiring ---------- */
+function syncInputs(){
+  $("layout").value=S.layout;$("dx").value=String(S.dx);$("margin").value=S.margin;$("sigma").value=S.sigma;$("trunc").value=S.trunc;$("cell").value=S.cell;
+  $("norm").checked=S.norm;$("th").value=S.th;$("thR").value=S.th;$("tone").value=S.tone;
+  for(const k in S.rules)$(k).value=S.rules[k];$("iters").value=S.auto.iters;$("band").value=S.auto.band;$("delta").value=S.auto.delta;
+  $("kGauss").setAttribute("aria-pressed",S.ktype==="gauss");$("kTable").setAttribute("aria-pressed",S.ktype==="table");
+  $("gaussOpts").hidden=S.ktype!=="gauss";$("tableOpts").hidden=S.ktype!=="table";
+  document.querySelectorAll("#ktab input").forEach(inp=>{inp.value=S.table[+inp.dataset.r][+inp.dataset.c];});
+}
+function buildKtab(){
+  const box=$("ktab");for(let r=0;r<5;r++)for(let c=0;c<5;c++){const i=document.createElement("input");i.type="number";i.step="0.5";i.min="0";i.id=`k${r}${c}`;i.dataset.r=r;i.dataset.c=c;i.setAttribute("aria-label",`가중치 ${r+1}행 ${c+1}열`);i.value=S.table[r][c];
+    i.addEventListener("change",()=>{S.table[r][c]=Math.max(0,+i.value||0);recompute();});box.appendChild(i);}
+}
+const num=(id,fn)=>$(id).addEventListener("change",()=>{const v=+$(id).value;if(!isFinite(v))return;fn(v);});
+function init(){
+  buildKtab();
+  $("layout").addEventListener("change",()=>{S.layout=$("layout").value;[MS.x1,MS.y1,MS.x2,MS.y2]=MEASURE_DEFAULT[S.layout];syncMeasureInputs();rebuildAll(false);setStatus("셀을 바꿔 마스크를 초기화했습니다.");});
+  $("dx").addEventListener("change",()=>{S.dx=+$("dx").value;rebuildAll(false);setStatus("격자를 바꿔 마스크를 초기화했습니다.");});
+  num("margin",v=>{S.margin=Math.max(0,v);rebuildAll(false);});
+  num("sigma",v=>{S.sigma=Math.max(0.5,v);recompute();});
+  num("trunc",v=>{S.trunc=Math.max(1,v);recompute();});
+  num("cell",v=>{S.cell=Math.max(0.5,v);recompute();});
+  $("norm").addEventListener("change",()=>{const old=Iopen();S.norm=$("norm").checked;buildKernel();S.th=+(S.th/old*Iopen()).toPrecision(4);$("th").value=S.th;$("thR").value=S.th;recompute();});
+  $("kGauss").onclick=()=>{S.ktype="gauss";syncInputs();recompute();};
+  $("kTable").onclick=()=>{S.ktype="table";syncInputs();recompute();};
+  num("th",v=>{S.th=Math.max(0,v);$("thR").value=v;recompute();});
+  $("thR").addEventListener("input",()=>{S.th=+(+$("thR").value).toFixed(4);$("th").value=S.th;recompute();});
+  $("tone").addEventListener("change",()=>{S.tone=$("tone").value;drawAll();});
+  for(const k of ["bias","ext","hhw","hhl","serif","anti"])num(k,v=>{S.rules[k]=v;});
+  num("iters",v=>S.auto.iters=Math.max(1,Math.round(v)));num("band",v=>S.auto.band=Math.max(G.dx,v));num("delta",v=>{S.auto.delta=Math.max(0,v);});
+  $("applyRules").onclick=()=>{applyRules();history=[];opcLog=[{step:"rules",...S.applied}];recompute();
+    const a=S.applied;setStatus(`규칙 보정 적용 (실제 적용값: 바이어스 ${a.bias}, 선끝 ${a.ext}, 해머헤드 ${a.hhw}/${a.hhl}, 세리프 ${a.serif}, 안티세리프 ${a.anti} nm) · IoU ${met0.iou.toFixed(4)} → ${met1.iou.toFixed(4)}`);};
+  $("runAuto").onclick=runAuto;$("stopAuto").onclick=()=>{stopFlag=true;};
+  $("resetMask").onclick=()=>{M=T.slice();history=[];opcLog=[];recompute();setStatus("마스크를 목표 패턴으로 되돌렸습니다.");};
+  const bm=mode=>{S.brush.mode=mode;$("bOff").setAttribute("aria-pressed",mode==="off");$("bAdd").setAttribute("aria-pressed",mode==="add");$("bDel").setAttribute("aria-pressed",mode==="del");drawAll();};
+  $("bOff").onclick=()=>bm("off");$("bAdd").onclick=()=>bm("add");$("bDel").onclick=()=>bm("del");
+  num("bsize",v=>S.brush.size=Math.max(1,Math.round(v)));
+  const cv=$("mask1");let down=false,pend=false;
+  const paint=e=>{
+    if(S.brush.mode==="off"||running)return;const r=cv.getBoundingClientRect(),s=scale();
+    const px=(e.clientX-r.left)*cv.width/r.width,py=(e.clientY-r.top)*cv.height/r.height;
+    const gx=Math.floor((px-ML)/s),gy=Math.floor((py-MT)/s),b=S.brush.size,h=Math.floor((b-1)/2);
+    for(let y=gy-h;y<gy-h+b;y++)for(let x=gx-h;x<gx-h+b;x++)if(x>=0&&y>=0&&x<G.nx&&y<G.ny)M[y*G.nx+x]=S.brush.mode==="add"?1:0;
+    if(!pend){pend=true;requestAnimationFrame(()=>{pend=false;I1=convolve(M);P1=develop(I1);met1=metrics(P1,I1);drawAfter();drawMetrics();});}
+  };
+  cv.addEventListener("pointerdown",e=>{if(S.brush.mode==="off")return;down=true;cv.setPointerCapture(e.pointerId);paint(e);e.preventDefault();});
+  cv.addEventListener("pointermove",e=>{if(down)paint(e);});
+  cv.addEventListener("pointerup",()=>{if(down){down=false;opcLog.push({step:"manual",mode:S.brush.mode});setStatus(`직접 수정 · IoU ${met1.iou.toFixed(4)}`);}});
+  cv.style.touchAction="none";
+  $("openExport").onclick=()=>{$("exportBox").hidden=false;$("importBox").hidden=true;$("jsonOut").value=JSON.stringify(exportObj(),null,1);$("csvOut").value=csvText();
+    $("figOut").src=compositeFigure();$("figTK").src=panelImage(["tgt","kern"],`${S.layout} 목표 패턴 · 빛 분포 커널`);$("figPF").src=profileImage();
+    $("figBox").hidden=false;io("내보낼 내용을 만들었습니다. 논문용 그림 3장은 화면 오른쪽 맨 아래에 있습니다.");};
+  $("dlJson").onclick=()=>tryDownload(fname("json"),"data:application/json;charset=utf-8,"+encodeURIComponent($("jsonOut").value));
+  $("dlCsv").onclick=()=>tryDownload(fname("csv"),"data:text/csv;charset=utf-8,"+encodeURIComponent("﻿"+$("csvOut").value));
+  $("dlPng").onclick=()=>tryDownload(fname("png"),$("figOut").src||compositeFigure());
+  $("cpJson").onclick=()=>copyText("jsonOut");$("cpCsv").onclick=()=>copyText("csvOut");
+  $("openImport").onclick=()=>{$("importBox").hidden=false;$("exportBox").hidden=true;};
+  $("doImport").onclick=()=>doImport($("jsonIn").value);
+  $("fileIn").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$("jsonIn").value=r.result;doImport(r.result);};r.readAsText(f);});
+  /* measurement wiring */
+  syncMeasureInputs();
+  for(const id of ["mx1","my1","mx2","my2"])num(id,v=>{MS[id==="mx1"?"x1":id==="my1"?"y1":id==="mx2"?"x2":"y2"]=v;});
+  $("doMeasure").onclick=()=>{MS.x1=+$("mx1").value;MS.y1=+$("my1").value;MS.x2=+$("mx2").value;MS.y2=+$("my2").value;drawAll();};
+  const setPick=k=>{MS.pick=k;$("pickMeasure").setAttribute("aria-pressed",k>0);$("pickHint").textContent=k===1?"노광 분포나 중첩 그림에서 시작점을 클릭하세요.":k===2?"이제 끝점을 클릭하세요.":"";};
+  $("pickMeasure").onclick=()=>setPick(MS.pick?0:1);
+  const r2=v=>Math.round(v*4)/4;
+  for(const id of ["tgt","mask0","int0","pr0","ov0","mask1","int1","pr1","ov1"]){
+    const cv=$(id);
+    cv.addEventListener("mousemove",e=>{const [x,y]=cvToNm(cv,e);
+      $("readout").textContent=`x ${x.toFixed(2)} nm, y ${y.toFixed(2)} nm · 노광량 보정 전 ${Iat(I0,x,y).toFixed(3)} / 보정 후 ${Iat(I1,x,y).toFixed(3)} · ${inTarget(x,y)?"목표 패턴 안":"목표 패턴 밖"}`;});
+    cv.addEventListener("click",e=>{
+      if(!MS.pick||(id==="mask1"&&S.brush.mode!=="off"))return;
+      let [x,y]=cvToNm(cv,e);x=r2(x);y=r2(y);
+      if(MS.pick===1){MS.x1=x;MS.y1=y;MS.x2=x;MS.y2=y;setPick(2);}
+      else{if($("snap").checked){if(Math.abs(x-MS.x1)>=Math.abs(y-MS.y1))y=MS.y1;else x=MS.x1;}MS.x2=x;MS.y2=y;setPick(0);syncMeasureInputs();drawAll();}
+      syncMeasureInputs();
+    });
+  }
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>drawAll());
+  new MutationObserver(()=>drawAll()).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme"]});
+  window.addEventListener("resize",()=>{drawHist();drawProfile();});
+  const hc=$("hist");
+  const histPick=e=>{if(!histGeom||history.length<2)return;const r=hc.getBoundingClientRect(),x=e.clientX-r.left,{pl,pr,W,last}=histGeom;
+    const i=Math.max(0,Math.min(last,Math.round((x-pl)/(W-pl-pr)*last)));histHover=i;drawHist();$("histInfo").textContent=histText(i);};
+  hc.addEventListener("mousemove",histPick);hc.addEventListener("click",histPick);
+  hc.addEventListener("mouseleave",()=>{histHover=null;drawHist();});
+  syncInputs();rebuildAll(false);
+  setStatus(`준비됨 · 보정 전 IoU ${met0.iou.toFixed(4)}`);
+}
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{if(G)drawAll();});
+init();
+</script>
